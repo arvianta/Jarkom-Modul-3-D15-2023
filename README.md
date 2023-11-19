@@ -743,6 +743,19 @@ auth_basic "Administrator's Area";
 auth_basic_user_file /etc/nginx/rahasiakita/.htpasswd;
 ```
 
+berikut yang terjadi jika kita mencoba mengakses ``granz.channel.d15.com`` melalui client Sein dengan command
+
+```
+$ lynx http://granz.channel.d15.com/
+```
+
+<img src="assets/user_ask.png" />
+<img src="assets/pass_ask.png" />
+
+apabila username dan password yang dimasukkan benar, maka:
+
+<img src="assets/pass_ok.png" />
+
 ### Soal 11
 Di sini kita membuat setiap request yang mengandung /its akan di proxy passing menuju halaman https://www.its.ac.id
 
@@ -757,6 +770,12 @@ location ~ /its {
         proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+Berikut yang terjadi apabila kita mencoba untuk mengakses ``http://granz.channel.d15.com/its``
+
+<img src="assets/itts.png" />
+
+note: lynx akan langsung diarahkan ke ``http://www.its.ac.id/``
 
 ### Soal 12
 Selanjutnya LB ini hanya boleh diakses oleh client dengan IP [Prefix IP].3.69, [Prefix IP].3.70, [Prefix IP].4.167, dan [Prefix IP].4.168
@@ -817,8 +836,11 @@ server_name granz.channel.d15.com;
 }
 ```
 
-## Setting Database
+Berikut yang terjadi apabila kita mencoba untuk mengakses ``http://granz.channel.d15.com`` melalui client Sein (yang memiliki IP 10.29.4.12 -- tidak diperbolehkan untuk mengakses oleh load balancer)
 
+<img src="assets/forbidden.png" />
+
+## Setting Database
 
 ### Soal 13
 Semua data yang diperlukan, diatur pada Denken dan harus dapat diakses oleh Frieren, Flamme, dan Fern.
@@ -1023,3 +1045,450 @@ jangan lupa untuk melakukan restart service nginx pada masing-masing worker Lara
 $ service nginx restart
 ```
 
+
+### Soal 15
+Riegel Channel memiliki beberapa endpoint yang harus ditesting sebanyak 100 request dengan 10 request/second
+lakukanlah testing pada:
+POST /auth/register
+
+hal pertama yang kita perlu lakukan adalah setting balancer Eisen, tepatnya pada ``/etc/nginx/sites-available/lb-laravel``:
+
+```
+#Default menggunakan Round Robin
+upstream backend_laravel  {
+        server 10.29.4.1:8001; #IP Frieren
+        server 10.29.4.2:8002; #IP flamme
+        server 10.29.4.3:8003; #IP Fern
+}
+
+server {
+        listen 81;
+        server_name riegel.canyon.d15.com;
+
+        location / {
+                proxy_pass http://backend_laravel;
+                proxy_set_header    X-Real-IP $remote_addr;
+                proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header    Host $http_host;
+
+                #auth_basic "Administrator's Area";
+                #auth_basic_user_file /etc/nginx/rahasiakita/.htpasswd;
+        }
+
+        location ~ /\.ht {
+                deny all;
+        }
+
+        error_log /var/log/nginx/lb_laravel_error.log;
+        access_log /var/log/nginx/lb_laravel_access.log;
+}
+```
+
+setelah itu, kita perlu mengaktifkan konfigurasi tersebut dengan command:
+
+```
+$ ln -s /etc/nginx/sites-available/lb-laravel /etc/nginx/sites-enabled/
+```
+
+restart nginx
+
+```
+$ service nginx restart
+```
+
+sebelum kita dapat melakukan testing, kita harus menginstall _apache2-utils_ terlebih dahulu pada client servers. Berikut merupakan command yang dapat digunakan
+
+```
+$ apt-get install apache2-utils -y
+```
+
+sebelum melakukan testing, kita perlu membuat suatu file sebagai data yang digunakan untuk register, yakni ``register_data.json``. Berikut merupakan isi file tersebut:
+
+```
+{
+    "username": "userd15",
+    "password": "passd15"
+}
+```
+
+untuk melakukan testing tersebut, berikut merupakan commandnya:
+
+```
+$ ab -n 100 -c 10 -T 'application/json' -p register_data.json -g register_results.data http://riegel.canyon.d15.com:81/api/auth/register
+```
+
+note: karena pada server eisen, riegel.channel.d15.com berjalan pada port 81, kita perlu menambahkan port tersebut pada url yang kita test
+
+berikut merupakan hasil testingnya:
+
+<img src="assets/register_requests.png" />
+
+### Soal 16
+testing yang sama seperti di atas tetapi ke route POST /auth/login
+
+sebelum melakukan testing, kita perlu membuat ``login_data.json`` yang berisi sebagai berikut:
+
+```
+{
+    "username": "userd15",
+    "password": "passd15"
+}
+```
+
+berikut merupakan command yang digunakan untuk melakukan testing tersebut
+
+```
+$ ab -n 100 -c 10 -T 'application/json' -p login_data.json -g login_results.data http://riegel.canyon.d15.com:81/api/auth/login
+```
+
+berikut merupakan hasil testingnya:
+
+<img src="assets/login_requests.png" />
+
+### Soal 17
+Testing yang sama seperti di atas tetapi dengan method GET ke route /me
+
+sebelum melakukan testing, kita perlu melakukan login terlebih dahulu untuk mendapatkan token yang nantinya dapat kita gunakan untuk mengakses /me
+
+berikut merupakan command yang digunakan untuk mendapatkan token:
+
+```
+$ curl -X POST -H "Content-type: application/json" -d '{"username": "userd15", "password": "passd15"}' http://riegel.canyon.d15.com:81/api/auth/login
+```
+
+untuk testing apakah token yang dihasilkan untuk testing sesuai, kita dapat menggunakan command curl sebagai berikut:
+
+```
+$ curl -X GET -H "Authorization: Bearer $token" http://riegel.canyon.d15.com:81/api/me
+```
+
+note: isi $token dengan token hasil login
+
+apabila muncul data yang diinginkan, maka token benar dan dapat digunakan untuk testing
+
+berikut merupakan command yang digunakan untuk melakukan testing tersebut:
+
+```
+$ ab -n 1000 -c 10 -H "Authorization: Bearer $token" http://riegel.canyon.d15.com:81/api/me
+```
+
+note: masukkan token ke $token
+
+berikut hasil testingnya:
+
+<img src="assets/me_requests.png" />
+
+### Soal 18
+Untuk memastikan ketiganya bekerja sama secara adil untuk mengatur Riegel Channel maka implementasikan Proxy Bind pada Eisen untuk mengaitkan IP dari Frieren, Flamme, dan Fern
+
+untuk dapat melakukannya, kita perlu menambahkan konfigurasi sebagai berikut di Eisen (load balancer server)
+
+```
+upstream backend_laravel  {
+least_conn;
+server 10.29.4.1:8001; #IP Frieren
+server 10.29.4.2:8002; #IP flamme
+server 10.29.4.3:8003; #IP Fern
+}
+
+server {
+        listen 81;
+        server_name riegel.canyon.d15.com;
+
+        location / {
+                proxy_pass http://backend_laravel;
+                proxy_set_header    X-Real-IP $remote_addr;
+                proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header    Host $http_host;
+
+                #auth_basic "Administrator's Area";
+                #auth_basic_user_file /etc/nginx/rahasiakita/.htpasswd;
+        }
+
+        location ~ /\.ht {
+                deny all;
+        }
+
+        error_log /var/log/nginx/lb_laravel_error.log;
+        access_log /var/log/nginx/lb_laravel_access.log;
+
+}
+```
+
+### Soal 19
+Untuk meningkatkan performa dari Worker, coba implementasikan PHP-FPM pada Frieren, Flamme, dan Fern. Untuk testing kinerja naikkan 
+- pm.max_children
+- pm.start_servers
+- pm.min_spare_servers
+- pm.max_spare_servers
+
+sebanyak tiga percobaan dan lakukan testing sebanyak 100 request dengan 10 request/second kemudian berikan hasil analisisnya pada Grimoire.
+
+berikut merupakan command untuk testingnya:
+
+```
+$ ab -n 100 -c 10 -T 'application/json' -p login_data.json -g login_results.data http://riegel.canyon.d15.com:81/api/auth/login
+```
+
+meningkatkan performa dari worker Laravel dengan melakukan konfigurasi pada php-fpm, kita perlu melakukan beberapa konfigurasi pada file ``/etc/php/8.0/fpm/pool.d/www-conf`` pada masing-masing worker Laravel. Berikut merupakan konfigurasi defaultnya:
+
+```
+[www]
+user = www-data
+group = www-data
+listen = /run/php/php8.0-fpm.sock
+listen.owner = www-data
+listen.group = www-data
+php_admin_value[disable_functions] = exec,passthru,shell_exec,system
+php_admin_flag[allow_url_fopen] = off
+
+; Choose how the process manager will control the number of child processes.
+
+pm = dynamic
+pm.max_children = 5
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+```
+
+berikut merupakan hasil testingnya:
+
+```
+Server Software:    	nginx/1.14.2
+Server Hostname:    	10.29.2.2
+Server Port:        	81
+
+Document Path:      	/api/auth/login
+Document Length:    	169 bytes
+
+Concurrency Level:  	10
+Time taken for tests:   0.195 seconds
+Complete requests:  	100
+Failed requests:    	0
+Non-2xx responses:  	100
+Total transferred:  	31900 bytes
+Total body sent:    	20400
+HTML transferred:   	16900 bytes
+Requests per second:	512.10 [#/sec] (mean)
+Time per request:   	19.528 [ms] (mean)
+Time per request:   	1.953 [ms] (mean, across all concurrent requests)
+Transfer rate:      	159.53 [Kbytes/sec] received
+                    	102.02 kb/s sent
+                    	261.55 kb/s total
+```
+
+konfigurasi putaran ke-1:
+
+```
+[www]
+user = www-data
+group = www-data
+listen = /run/php/php8.0-fpm.sock
+listen.owner = www-data
+listen.group = www-data
+php_admin_value[disable_functions] = exec,passthru,shell_exec,system
+php_admin_flag[allow_url_fopen] = off
+
+; Choose how the process manager will control the number of child processes.
+
+pm.max_children = 20
+pm.start_servers = 4
+pm.min_spare_servers = 3
+pm.max_spare_servers = 12
+```
+
+berikut merupakan hasil testingnya:
+
+```
+Server Software:    	nginx/1.14.2
+Server Hostname:    	10.29.2.2
+Server Port:        	81
+
+Document Path:      	/api/auth/login
+Document Length:    	169 bytes
+
+Concurrency Level:  	10
+Time taken for tests:   0.301 seconds
+Complete requests:  	100
+Failed requests:    	0
+Non-2xx responses:  	100
+Total transferred:  	31900 bytes
+Total body sent:    	20400
+HTML transferred:   	16900 bytes
+Requests per second:	332.15 [#/sec] (mean)
+Time per request:   	30.107 [ms] (mean)
+Time per request:   	3.011 [ms] (mean, across all concurrent requests)
+Transfer rate:      	103.47 [Kbytes/sec] received
+                    	66.17 kb/s sent
+                    	169.64 kb/s total
+```
+
+konfigurasi putaran ke-2:
+
+```
+[www]
+user = www-data
+group = www-data
+listen = /run/php/php8.0-fpm.sock
+listen.owner = www-data
+listen.group = www-data
+php_admin_value[disable_functions] = exec,passthru,shell_exec,system
+php_admin_flag[allow_url_fopen] = off
+
+; Choose how the process manager will control the number of child processes.
+
+pm.max_children = 40
+pm.start_servers = 6
+pm.min_spare_servers = 5
+pm.max_spare_servers = 14
+```
+
+berikut merupakan hasil testingnya:
+
+```
+Server Software:    	nginx/1.14.2
+Server Hostname:    	10.29.2.2
+Server Port:        	81
+
+Document Path:      	/api/auth/login
+Document Length:    	169 bytes
+
+Concurrency Level:  	10
+Time taken for tests:   0.290 seconds
+Complete requests:  	100
+Failed requests:    	0
+Non-2xx responses:  	100
+Total transferred:  	31900 bytes
+Total body sent:    	20400
+HTML transferred:   	16900 bytes
+Requests per second:	344.25 [#/sec] (mean)
+Time per request:   	29.049 [ms] (mean)
+Time per request:   	2.905 [ms] (mean, across all concurrent requests)
+Transfer rate:      	107.24 [Kbytes/sec] received
+                    	68.58 kb/s sent
+                    	175.82 kb/s total
+```
+
+konfigurasi putaran ke-3:
+
+```
+[www]
+user = www-data
+group = www-data
+listen = /run/php/php8.0-fpm.sock
+listen.owner = www-data
+listen.group = www-data
+php_admin_value[disable_functions] = exec,passthru,shell_exec,system
+php_admin_flag[allow_url_fopen] = off
+
+; Choose how the process manager will control the number of child processes.
+
+pm.max_children = 60
+pm.start_servers = 8
+pm.min_spare_servers = 7
+pm.max_spare_servers = 18
+```
+
+berikut merupakan hasil testingnya:
+
+```
+Server Software:    	nginx/1.14.2
+Server Hostname:    	10.29.2.2
+Server Port:        	81
+
+Document Path:      	/api/auth/login
+Document Length:    	169 bytes
+
+Concurrency Level:  	10
+Time taken for tests:   0.290 seconds
+Complete requests:  	100
+Failed requests:    	0
+Non-2xx responses:  	100
+Total transferred:  	31900 bytes
+Total body sent:    	20400
+HTML transferred:   	16900 bytes
+Requests per second:	345.31 [#/sec] (mean)
+Time per request:   	28.959 [ms] (mean)
+Time per request:   	2.896 [ms] (mean, across all concurrent requests)
+Transfer rate:      	107.57 [Kbytes/sec] received
+                    	68.79 kb/s sent
+                    	176.37 kb/s total
+```
+
+### Soal 20
+Nampaknya hanya menggunakan PHP-FPM tidak cukup untuk meningkatkan performa dari worker maka implementasikan Least-Conn pada Eisen. Untuk testing kinerja dari worker tersebut dilakukan sebanyak 100 request dengan 10 request/second
+
+setelah melakukan konfigurasi pada php-fpm (yang telah dilakukan di soal sebelumnya) kita juga perlu mengubah load balancer agar menggunakan konfigurasi least-conn sehingga dapat bekerja dengan lebih optimal
+
+kita perlu melakukan konfig load balancer Eisen, tepatnya pada file ``/etc/nginx/sites-available/lb-laravel`` sebagai berikut:
+
+```
+upstream backend_laravel  {
+        least_conn;
+        server 10.29.4.1:8001; #IP Frieren
+        server 10.29.4.2:8002; #IP flamme
+        server 10.29.4.3:8003; #IP Fern
+}
+
+server {
+        listen 81;
+        server_name riegel.canyon.d15.com;
+
+        location / {
+                proxy_pass http://backend_laravel;
+                proxy_set_header    X-Real-IP $remote_addr;
+                proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header    Host $http_host;
+
+                #auth_basic "Administrator's Area";
+                #auth_basic_user_file /etc/nginx/rahasiakita/.htpasswd;
+        }
+
+        location ~ /\.ht {
+                deny all;
+        }
+
+        error_log /var/log/nginx/lb_laravel_error.log;
+        access_log /var/log/nginx/lb_laravel_access.log;
+}
+```
+
+Untuk testing kinerja dari worker tersebut dilakukan sebanyak 100 request dengan 10 request/second
+
+pertama, kita perlu melakukan login:
+
+```
+$ curl -X POST -H "Content-type: application/json" -d '{"username": "userd15", "password": "passd15"}' http://riegel.canyon.d15.com:81/api/auth/login
+```
+
+kemudian kita testing menggunakan Apache Benchmark:
+
+```
+$ ab -n 100 -c 10 -H "Authorization: Bearer $token" http://riegel.canyon.d15.com:81/api/me
+```
+
+Berikut merupakan hasilnya:
+
+```
+Server Software:    	nginx/1.14.2
+Server Hostname:    	10.29.2.2
+Server Port:        	81
+
+Document Path:      	/api/auth/login
+Document Length:    	169 bytes
+
+Concurrency Level:  	10
+Time taken for tests:   0.236 seconds
+Complete requests:  	100
+Failed requests:    	0
+Non-2xx responses:  	100
+Total transferred:  	31900 bytes
+Total body sent:    	20400
+HTML transferred:   	16900 bytes
+Requests per second:	423.23 [#/sec] (mean)
+Time per request:   	23.628 [ms] (mean)
+Time per request:   	2.363 [ms] (mean, across all concurrent requests)
+Transfer rate:      	131.85 [Kbytes/sec] received
+                    	84.31 kb/s sent
+                    	216.16 kb/s total
+```
