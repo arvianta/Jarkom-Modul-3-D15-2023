@@ -543,3 +543,278 @@ aktifkan php7.3-fpm dan nginx pada masing-masing worker
 service php7.3-fpm start
 service nginx start
 ```
+
+setelah itu, kita melakukan setting di load balancer Eisen
+
+untuk menjadikan Eisen load balancer sekaligus untuk keperluan testing, kita perlu menginstall beberapa hal, yakni nginx, php7.3. php7.3-fpm, htop, dan apache2-utils
+
+```
+$ apt-get update -y
+$ apt-get install nginx php7.3 php7.3-fpm htop apache2-utils -y
+```
+
+kita lalu melakukan konfigurasi load balancer untuk **granz.channel.d15.com**
+
+```
+upstream backend  {
+    hash $request_uri consistent;
+    server 10.29.3.1; #IP Lawine
+    server 10.29.3.2; #IP Linie
+    server 10.29.3.3; #IP Lugner
+}
+
+server {
+        listen 80;
+        server_name granz.channel.d15.com;
+
+        location / {
+                proxy_pass http://backend;
+                proxy_set_header    X-Real-IP $remote_addr;
+                proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header    Host $http_host;
+        }
+
+        location ~ /\.ht {
+                deny all;
+        }
+
+        error_log /var/log/nginx/lb_error.log;
+        access_log /var/log/nginx/lb_access.log;
+}
+```
+
+### Soal 7
+disini kita akan mengatur agar Eisen dapat bekerja dengan maksimal, lalu melakukan testing dengan 1000 request dan 100 request/second
+
+command yang kita gunakan untuk melakukan testing:
+
+```
+$ ab -n 1000 -c 100 http://granz.channel.d15.com/
+```
+
+berikut merupakan hasil testing dengan menggunakan algoritma load balancing round robin, least connection, ip hash, dan generic hash
+
+**roundrobin**
+
+Complete requests:      1000
+
+Failed requests:        0
+
+Requests per second:    1130.87 [#/sec] (mean)
+
+**least connection**
+
+Complete requests:      1000
+
+Failed requests:        0
+
+Requests per second:    1143.11 [#/sec] (mean)
+
+**ip hash**
+
+Complete requests:      1000
+
+Failed requests:        0
+
+Requests per second:    1254.86 [#/sec] (mean)
+
+**generic hash**
+
+Complete requests:      1000
+
+Failed requests:        0
+
+Requests per second:    1232.61 [#/sec] (mean)
+
+dari sini kita menyimpulkan bahwa algoritma terbaik adalah ip hash karena tidak ada request yang gagal dan dengan kecepatan request per detik yang paling tinggi dibanding dengan algoritma lainnya
+
+### Soal 8
+analisis hasil testing dengan 200 request dan 10 request/second masing-masing algoritma Load Balancer
+
+command untuk testing:
+
+```
+$ ab -n 200 -c 10 http://granz.channel.d15.com/
+```
+
+**Round Robin**
+
+Report hasil testing apache benchmark:
+
+<img src="assets/round_robin.png" />
+
+Hasil testing grafik htop:
+
+<img src="assets/round_robin_graph.png" />
+
+**Least Connection**
+
+Report hasil testing apache benchmark:
+
+<img src="assets/least_conn.png" />
+
+Hasil testing grafik htop:
+
+<img src="assets/least_conn_graph.png" />
+
+**IP Hash**
+
+Report hasil testing apache benchmark:
+
+<img src="assets/ip_hash.png" />
+
+Hasil testing grafik htop:
+
+<img src="assets/ip_hash_graph.png" />
+
+**Generic Hash**
+
+Report hasil testing apache benchmark:
+
+<img src="assets/generic_hash.png" />
+
+Hasil testing grafik htop:
+
+<img src="assets/generic_hash_graph.png" />
+
+**Grafik request per second masing-masing algoritma**
+
+<img src="assets/graph.png" />
+
+**Analisis**
+
+Berdasarkan dari data hasil testing dengan menggunakan Apache Benchmark dan grafik request per second, kita dapat menyimpulkan bahwa algoritma load balancing paling cepat adalah generic hash, tetapi kecepatannya relatif sama dengan algoritma Round Robin dan IP Hash, sedangkan algoritma yang paling lambat (request per secondnya) adalah Least Connection, tetapi dua algoritma yang paling banyak mengalami failed requests adalah Round Robin dan Least Connection, sedangkan algoritma IP Hash dan Generic Hash tidak mengalami failed requests sama sekali.
+
+### Soal 9
+Disini kita akan melakukan testing dengan menggunakan algoritma Round Robin dengan 3 worker, 2 worker, dan 1 worker sebanyak 100 request dengan 10 request/second, kemudian kita akan melihat perbandingan mereka dengan membuat grafik
+
+command untuk testing
+```
+$ ab -n 100 -c 10 http://granz.channel.d15.com/
+```
+
+**3 Worker**
+
+apache benchmark:
+
+<img src="assets/3_workers.png" />
+
+grafik htop:
+
+<img src="assets/3_workers_graph.png" />
+
+**2 Worker**
+
+apache benchmark:
+
+<img src="assets/2_workers.png" />
+
+grafik htop:
+
+<img src="assets/2_workers_graph.png" />
+
+**1 Worker**
+
+apache benchmark:
+
+<img src="assets/1_workers.png" />
+
+grafik htop:
+
+<img src="assets/1_workers_graph.png" />
+
+Berikut merupakan grafik perbandingannya
+
+<img src="assets/graph_1.png" />
+
+### Soal 10
+Di sini, kita akan melakukan konfigurasi autentikasi di LB dengan dengan kombinasi username: “netics” dan password: “ajkyyy”, dengan yyy merupakan kode kelompok. Terakhir simpan file “htpasswd” nya di /etc/nginx/rahasisakita/
+
+untuk autentikasi, kita perlu membuat file berisi username dan password dengan command sebagai berikut
+
+```
+$ htpasswd -b -c /etc/nginx/rahasisakita/.htpasswd netics ajkd15
+```
+
+kemudian, kita perlu menambahkan konfigurasi berikut pada ``/etc/nginx/sites-available/lb-jarkom``
+
+```
+auth_basic "Administrator's Area";
+auth_basic_user_file /etc/nginx/rahasiakita/.htpasswd;
+```
+
+### Soal 11
+Di sini kita membuat setiap request yang mengandung /its akan di proxy passing menuju halaman https://www.its.ac.id
+
+untuk melakukannya, kita perlu menambahkan beberapa konfigurasi pada Eisen, tepatnya di ``/etc/nginx/sites-available/lb-jarkom`` dengan konfigurasi sebagai berikut:
+
+```
+location ~ /its {
+        proxy_pass https://www.its.ac.id;
+        proxy_set_header Host www.its.ac.id;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+### Soal 12
+Selanjutnya LB ini hanya boleh diakses oleh client dengan IP [Prefix IP].3.69, [Prefix IP].3.70, [Prefix IP].4.167, dan [Prefix IP].4.168
+
+untuk melakukannya, kita perlu menambahkan beberapa konfigurasi pada Eisen, tepatnya di ``/etc/nginx/sites-available/lb-jarkom`` dengan konfigurasi sebagai berikut:
+
+```
+allow 10.29.3.17;
+allow 10.29.3.69;
+allow 10.29.3.70;
+allow 10.29.4.167;
+allow 10.29.4.168;
+deny all;
+```
+
+Berikut merupakan konfigurasi lengkap ``/etc/nginx/sites-available/lb-jarkom`` dengan algoritma Round Robin (default)
+
+```
+upstream backend  {
+server 10.29.3.1; #IP Lawine
+server 10.29.3.2; #IP Linie
+server 10.29.3.3; #IP Lugner
+}
+
+server {
+listen 80;
+server_name granz.channel.d15.com;
+
+        location / {
+                proxy_pass http://backend;
+                proxy_set_header    X-Real-IP $remote_addr;
+                proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header    Host $http_host;
+
+                auth_basic "Administrator's Area";
+                auth_basic_user_file /etc/nginx/rahasiakita/.htpasswd;
+
+                allow 10.29.3.17;
+                allow 10.29.3.69;
+                allow 10.29.3.70;
+                allow 10.29.4.167;
+                allow 10.29.4.168;
+                deny all;
+        }
+
+        location ~ /its {
+                proxy_pass https://www.its.ac.id;
+                proxy_set_header Host www.its.ac.id;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location ~ /\.ht {
+                deny all;
+        }
+
+        error_log /var/log/nginx/lb_error.log;
+        access_log /var/log/nginx/lb_access.log;
+}
+```
