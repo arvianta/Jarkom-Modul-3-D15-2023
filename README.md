@@ -816,3 +816,210 @@ server_name granz.channel.d15.com;
         access_log /var/log/nginx/lb_access.log;
 }
 ```
+
+## Setting Database
+
+
+### Soal 13
+Semua data yang diperlukan, diatur pada Denken dan harus dapat diakses oleh Frieren, Flamme, dan Fern.
+
+#### Setting DB Server, Denken
+hal pertama yang kita harus lakukan adalah install mariadb dan mysql di server DB, Denken
+
+```
+$ apt-get update -y
+$ apt-get install mariadb-server -y
+```
+
+kemudian, kita lakukan config agar database pada Denken, tepatnya di ``/etc/mysql/mariadb.conf.d/50-server.cnf`` dapat diakses oleh worker Laravel. 
+
+Disini, kita hanya perlu mengganti ip address dari _bind-address_ sehingga menjadi 0.0.0.0
+
+```
+bind-address            = 0.0.0.0
+```
+
+kemudian kita perlu untuk membuat account yang dapat digunakan di worker Laravel.
+
+pertama, kita buka mysql server dengan privilege root dengan menggunakan command
+
+```
+$ mysql -u root
+```
+
+kemudian didalam mysql, kita menjalankan command berikut
+
+```
+> CREATE USER userd15@'%' IDENTIFIED BY 'passwordd15';
+> GRANT ALL PRIVILEGES ON *.* TO userd15@'%' WITH GRANT OPTION;
+> FLUSH PRIVILEGES;
+> EXIT;
+```
+
+jalankan mysql server dengan command:
+
+```
+$ service mysql start
+```
+
+## Laravel Worker
+
+### Soal 14
+Kita perlu melakukan instalasi laravel beserta dengan aplikasi web di Frieren, Flamme, dan Fern kemudian melakukan pengaturan load balancer di Riegel Channel
+
+#### Instalasi Laravel pada Worker
+
+Pada worker Laravel, Frieren, Flamme, dan Fern, kita perlu melakukan instalasi php8.0, composer, wget, unzip, git, beberapa tools yang dibutuhkan lainnya, dan repository laravel soal dengan command sebagai berikut
+
+```
+# update
+apt-get update -y
+
+# install php8.0
+apt install -y gnupg2 ca-certificates apt-transport-https software-properties-common wget curl git unzip
+wget -qO - https://packages.sury.org/php/apt.gpg | apt-key add -
+echo "deb https://packages.sury.org/php/ buster main" | tee /etc/apt/sources.list.d/php.list
+apt-get update -y
+apt install php8.0 -y
+apt install php8.0-{mysql,imap,ldap,xml,curl,mbstring,zip,fpm,cli} -y
+
+# start services
+service php8.0-fpm start
+
+# install composer
+curl -sS https://getcomposer.org/installer -o composer-setup.php
+php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+
+# install mariadb-client
+apt-get install mariadb-client -y
+
+# install repo
+cd /var/www
+git clone https://github.com/martuafernando/laravel-praktikum-jarkom
+cd /var/www/laravel-praktikum-jarkom
+composer update
+cp /root/dotenv /var/www/laravel-praktikum-jarkom/.env
+php artisan key:generate
+php artisan config:cache
+php artisan migrate
+php artisan db:seed
+php artisan storage:link
+php artisan jwt:secret
+php artisan config:clear
+chown -R www-data.www-data /var/www/laravel-praktikum-jarkom/storage
+
+# install nginx
+apt-get install nginx -y
+```
+
+setelah itu kita perlu melakukan aktivasi service nginx dan php8.0-fpm dengan command:
+
+```
+$ service nginx start
+$ service php8.0-fpm start
+```
+
+setelah itu, kita perlu melakukan konfigurasi nginx pada ``/etc/nginx/sites-available/laravel-praktikum-jarkom`` sebagai berikut:
+
+```
+server {
+
+    listen 8001;
+
+    root /var/www/laravel-praktikum-jarkom/public;
+
+    index index.php index.html index.htm;
+    server_name _;
+
+    location / {
+            try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # pass PHP scripts to FastCGI server
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.0-fpm.sock;
+    }
+
+    location ~ /\.ht {
+            deny all;
+    }
+
+    error_log /var/log/nginx/implementasi_error.log;
+    access_log /var/log/nginx/implementasi_access.log;
+}
+```
+
+note: kebetulan pada kali ini, server worker Laravel yang kita setting adalah Frieren yang berjalan pada port 8001, pada worker Laravel Flamme, kita set portnya menjadi 8002 dan pada Fern, kita set menjadi 8002
+
+kita juga perlu melakukan setting pada aplikasi laravel kita di ``/var/www/html/laravel-praktikum-jarkom/.env`` pada masing-masing worker
+
+berikut merupakan konfigurasinya:
+
+```
+APP_NAME=Laravel
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+
+LOG_CHANNEL=stack
+LOG_DEPRECATIONS_CHANNEL=null
+LOG_LEVEL=debug
+
+DB_CONNECTION=mysql
+DB_HOST=10.29.2.1
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=userd15
+DB_PASSWORD=passwordd15
+
+BROADCAST_DRIVER=log
+CACHE_DRIVER=file
+FILESYSTEM_DISK=local
+QUEUE_CONNECTION=sync
+SESSION_DRIVER=file
+SESSION_LIFETIME=120
+
+MEMCACHED_HOST=127.0.0.1
+
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+
+MAIL_MAILER=smtp
+MAIL_HOST=mailpit
+MAIL_PORT=1025
+MAIL_USERNAME=null
+MAIL_PASSWORD=null
+MAIL_ENCRYPTION=null
+MAIL_FROM_ADDRESS="hello@example.com"
+MAIL_FROM_NAME="${APP_NAME}"
+
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=
+AWS_USE_PATH_STYLE_ENDPOINT=false
+
+PUSHER_APP_ID=
+PUSHER_APP_KEY=
+PUSHER_APP_SECRET=
+PUSHER_HOST=
+PUSHER_PORT=443
+PUSHER_SCHEME=https
+PUSHER_APP_CLUSTER=mt1
+
+VITE_PUSHER_APP_KEY="${PUSHER_APP_KEY}"
+VITE_PUSHER_HOST="${PUSHER_HOST}"
+VITE_PUSHER_PORT="${PUSHER_PORT}"
+VITE_PUSHER_SCHEME="${PUSHER_SCHEME}"
+VITE_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+```
+
+jangan lupa untuk melakukan restart service nginx pada masing-masing worker Laravel
+
+```
+$ service nginx restart
+```
+
