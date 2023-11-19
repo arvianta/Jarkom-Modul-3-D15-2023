@@ -513,4 +513,33 @@ wget --no-check-certificate 'https://drive.usercontent.google.com/download?id=1V
 unzip granz.channel.d15.com
 ```
 
+setting nginx masing-masing worker di **/etc/nginx/sites-available/default**
 
+```
+server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+
+        root /var/www/html;
+
+        index index.php index.html index.htm;
+
+        server_name _;
+
+        location / {
+                try_files $uri $uri/ =404;
+        }
+
+        location ~ \.php$ {
+                include snippets/fastcgi-php.conf;
+                fastcgi_pass unix:/run/php/php7.3-fpm.sock;
+        }
+}
+```
+
+aktifkan php7.3-fpm dan nginx pada masing-masing worker
+
+```
+service php7.3-fpm start
+service nginx start
+```
